@@ -1,0 +1,234 @@
+//@version=5
+// =============================================================================
+// HTF Reversal + 1m Divergence
+// -----------------------------------------------------------------------------
+// Identifies 1-minute regular RSI divergences that occur inside a higher
+// timeframe (HTF) reversal candle pattern (Hammer / Inv Hammer / Shooting Star
+// / Hanging Man / Bullish or Bearish Engulfing / Doji).
+//
+// Renders a mini-replica of the most recent confirmed HTF reversal candle to
+// the right of price (RPL) with horizontal guide lines marking its High, Low,
+// and Open. Plots a "Bull Div" / "Bear Div" marker on the 1-minute chart only
+// when the divergence falls inside the time window of that HTF candle.
+// =============================================================================
+
+indicator("HTF Reversal + 1m Divergence", overlay = true,
+     max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+
+// ---------- Inputs ----------
+htf            = input.timeframe("15", "Higher Timeframe",                 group = "HTF")
+
+showHammer     = input.bool(true,  "Hammer / Inverted Hammer",             group = "Patterns")
+showStar       = input.bool(true,  "Shooting Star / Hanging Man",          group = "Patterns")
+showEngulf     = input.bool(true,  "Bullish / Bearish Engulfing",          group = "Patterns")
+showDoji       = input.bool(true,  "Doji",                                 group = "Patterns")
+wickRatio      = input.float(2.0,  "Wick / Body ratio (Hammer & Star)",    group = "Patterns", minval = 1.0, step = 0.1)
+dojiRatio      = input.float(0.1,  "Doji body / range ratio",              group = "Patterns", minval = 0.01, maxval = 0.5, step = 0.01)
+
+rsiLen         = input.int(14,     "RSI length",                           group = "Divergence", minval = 2)
+pivotL         = input.int(5,      "Pivot left bars",                      group = "Divergence", minval = 1)
+pivotR         = input.int(5,      "Pivot right bars",                     group = "Divergence", minval = 1)
+minBars        = input.int(5,      "Min bars between pivots",              group = "Divergence", minval = 1)
+maxBars        = input.int(60,     "Max bars between pivots",              group = "Divergence", minval = 5)
+
+displayOffset  = input.int(25,     "HTF candle: bars to the right of price", group = "Display", minval = 5)
+displayWidth   = input.int(6,      "HTF candle: body width (bars)",        group = "Display", minval = 2)
+extendLines    = input.bool(true,  "Draw H / L / O guide lines",           group = "Display")
+guideLookback  = input.int(60,     "Guide line look-back (bars)",          group = "Display", minval = 10)
+bullColor      = input.color(color.new(#26a69a, 0), "Bullish body",        group = "Display")
+bearColor      = input.color(color.new(#7a1f1f, 0), "Bearish body",        group = "Display")
+wickColor      = input.color(color.new(color.silver, 0), "Wick",           group = "Display")
+guideColor     = input.color(color.new(color.gray, 30), "Guide line",      group = "Display")
+labelColor     = input.color(color.new(color.silver, 0), "Pattern label",  group = "Display")
+
+// ---------- HTF data (use prior closed bar so the pattern is confirmed) ----------
+[hO, hH, hL, hC, hO1, hC1] = request.security(syminfo.tickerid, htf,
+     [open[1], high[1], low[1], close[1], open[2], close[2]],
+     lookahead = barmerge.lookahead_off)
+
+// HTF bar start time of the *confirmed* (prior) bar
+hBarTime = request.security(syminfo.tickerid, htf, time[1], lookahead = barmerge.lookahead_off)
+
+// ---------- Pattern detection on the confirmed HTF bar ----------
+body   = math.abs(hC - hO)
+rng    = hH - hL
+upWick = hH - math.max(hO, hC)
+loWick = math.min(hO, hC) - hL
+
+isHammer    = rng > 0 and body > 0 and loWick >= body * wickRatio and upWick <= body * 0.5 and hC >= hO
+isInvHammer = rng > 0 and body > 0 and upWick >= body * wickRatio and loWick <= body * 0.5 and hC >= hO
+isShootStar = rng > 0 and body > 0 and upWick >= body * wickRatio and loWick <= body * 0.5 and hC <= hO
+isHanging   = rng > 0 and body > 0 and loWick >= body * wickRatio and upWick <= body * 0.5 and hC <= hO
+isDoji      = rng > 0 and body / rng <= dojiRatio
+isBullEng   = hC1 < hO1 and hC > hO and hO <= hC1 and hC >= hO1
+isBearEng   = hC1 > hO1 and hC < hO and hO >= hC1 and hC <= hO1
+
+bullPat = (showHammer and (isHammer or isInvHammer)) or (showEngulf and isBullEng) or (showDoji and isDoji and hC >= hO)
+bearPat = (showStar   and (isShootStar or isHanging)) or (showEngulf and isBearEng) or (showDoji and isDoji and hC <  hO)
+
+patName = isHammer    ? "Hammer"
+     : isInvHammer    ? "Inv Hammer"
+     : isShootStar    ? "Shooting Star"
+     : isHanging      ? "Hanging Man"
+     : isBullEng      ? "Bull Engulf"
+     : isBearEng      ? "Bear Engulf"
+     : isDoji         ? "Doji"
+     : ""
+
+// Fires once when a new HTF bar opens (the prior HTF bar has just confirmed)
+newHTFClose = ta.change(hBarTime) != 0
+
+// ---------- Persist most recent confirmed pattern ----------
+var float pO     = na
+var float pH     = na
+var float pL     = na
+var float pC     = na
+var int   pStart = na      // HTF candle's start time (ms)
+var bool  pBull  = na
+var string pName = na
+
+if newHTFClose
+    if bullPat
+        pO     := hO
+        pH     := hH
+        pL     := hL
+        pC     := hC
+        pStart := hBarTime
+        pBull  := true
+        pName  := patName
+    else if bearPat
+        pO     := hO
+        pH     := hH
+        pL     := hL
+        pC     := hC
+        pStart := hBarTime
+        pBull  := false
+        pName  := patName
+
+htfMs   = timeframe.in_seconds(htf) * 1000
+pEnd    = na(pStart) ? na : pStart + htfMs
+
+inPatternWindow(t) =>
+    not na(pStart) and t >= pStart and t < pEnd
+
+// ---------- 1-min Regular RSI Divergence ----------
+rsi   = ta.rsi(close, rsiLen)
+plPv  = ta.pivotlow (low,  pivotL, pivotR)
+phPv  = ta.pivothigh(high, pivotL, pivotR)
+plRsi = ta.pivotlow (rsi,  pivotL, pivotR)
+phRsi = ta.pivothigh(rsi,  pivotL, pivotR)
+
+var float prevPLowPx  = na
+var float prevPLowRsi = na
+var int   prevPLowBar = na
+var float prevPHighPx  = na
+var float prevPHighRsi = na
+var int   prevPHighBar = na
+
+bullDiv = false
+bearDiv = false
+
+if not na(plPv) and not na(plRsi)
+    if not na(prevPLowPx) and not na(prevPLowRsi)
+        gap = (bar_index - pivotR) - prevPLowBar
+        if gap >= minBars and gap <= maxBars
+            // Regular bullish: price LL, RSI HL
+            if low[pivotR] < prevPLowPx and rsi[pivotR] > prevPLowRsi
+                bullDiv := true
+    prevPLowPx  := low[pivotR]
+    prevPLowRsi := rsi[pivotR]
+    prevPLowBar := bar_index - pivotR
+
+if not na(phPv) and not na(phRsi)
+    if not na(prevPHighPx) and not na(prevPHighRsi)
+        gap = (bar_index - pivotR) - prevPHighBar
+        if gap >= minBars and gap <= maxBars
+            // Regular bearish: price HH, RSI LH
+            if high[pivotR] > prevPHighPx and rsi[pivotR] < prevPHighRsi
+                bearDiv := true
+    prevPHighPx  := high[pivotR]
+    prevPHighRsi := rsi[pivotR]
+    prevPHighBar := bar_index - pivotR
+
+// Only signal when the pivot bar's time falls inside the HTF reversal window
+// AND the pattern direction agrees with the divergence direction
+sigBull = bullDiv and pBull == true  and inPatternWindow(time[pivotR])
+sigBear = bearDiv and pBull == false and inPatternWindow(time[pivotR])
+
+plotshape(sigBull, title = "Bull Div", style = shape.triangleup,   location = location.belowbar,
+     color = color.new(#26a69a, 0), size = size.small, offset = -pivotR)
+plotshape(sigBear, title = "Bear Div", style = shape.triangledown, location = location.abovebar,
+     color = color.new(#ef5350, 0), size = size.small, offset = -pivotR)
+
+if sigBull
+    label.new(bar_index - pivotR, low[pivotR], text = "Bull Div", yloc = yloc.belowbar,
+         color = color.new(color.black, 100), textcolor = color.new(#5b8def, 0),
+         style = label.style_none, size = size.small)
+
+if sigBear
+    label.new(bar_index - pivotR, high[pivotR], text = "Bear Div", yloc = yloc.abovebar,
+         color = color.new(color.black, 100), textcolor = color.new(#ef5b5b, 0),
+         style = label.style_none, size = size.small)
+
+alertcondition(sigBull, title = "1m Bull Div in HTF Reversal", message = "Bullish 1m divergence inside HTF reversal pattern")
+alertcondition(sigBear, title = "1m Bear Div in HTF Reversal", message = "Bearish 1m divergence inside HTF reversal pattern")
+
+// ---------- Render HTF candle to the right of price (RPL) ----------
+var box   bodyBox  = na
+var line  wickHi   = na
+var line  wickLo   = na
+var line  guideHi  = na
+var line  guideLo  = na
+var line  guideOp  = na
+var label hiLbl    = na
+var label loLbl    = na
+var label opLbl    = na
+var label patLbl   = na
+
+if barstate.islast
+    box.delete(bodyBox)
+    line.delete(wickHi),  line.delete(wickLo)
+    line.delete(guideHi), line.delete(guideLo), line.delete(guideOp)
+    label.delete(hiLbl),  label.delete(loLbl),  label.delete(opLbl)
+    label.delete(patLbl)
+
+    if not na(pO)
+        leftX  = bar_index + displayOffset
+        rightX = bar_index + displayOffset + displayWidth
+        midX   = bar_index + displayOffset + displayWidth / 2
+        bodyTop = math.max(pO, pC)
+        bodyBot = math.min(pO, pC)
+        bodyCol = pBull ? bullColor : bearColor
+
+        // Body
+        bodyBox := box.new(left = leftX, top = bodyTop, right = rightX, bottom = bodyBot,
+             bgcolor = bodyCol, border_color = bodyCol, xloc = xloc.bar_index)
+
+        // Wicks
+        wickHi := line.new(midX, bodyTop, midX, pH, color = wickColor, width = 1, xloc = xloc.bar_index)
+        wickLo := line.new(midX, bodyBot, midX, pL, color = wickColor, width = 1, xloc = xloc.bar_index)
+
+        // Pattern label above the candle
+        ts = str.format_time(pStart, "HH:mm", syminfo.timezone)
+        patLbl := label.new(midX, pH, text = pName + "\n" + ts,
+             xloc = xloc.bar_index, yloc = yloc.price,
+             style = label.style_none, textcolor = labelColor, size = size.small)
+
+        // H / L / O guide lines extending from prior price action to the candle
+        if extendLines
+            guideHi := line.new(bar_index - guideLookback, pH, rightX, pH,
+                 color = guideColor, style = line.style_dotted, xloc = xloc.bar_index)
+            guideLo := line.new(bar_index - guideLookback, pL, rightX, pL,
+                 color = guideColor, style = line.style_dotted, xloc = xloc.bar_index)
+            guideOp := line.new(bar_index - guideLookback, pO, rightX, pO,
+                 color = guideColor, style = line.style_dashed, xloc = xloc.bar_index)
+
+            hiLbl := label.new(rightX, pH, text = " H " + str.tostring(pH, format.mintick),
+                 xloc = xloc.bar_index, yloc = yloc.price,
+                 style = label.style_none, textcolor = guideColor, size = size.tiny)
+            loLbl := label.new(rightX, pL, text = " L " + str.tostring(pL, format.mintick),
+                 xloc = xloc.bar_index, yloc = yloc.price,
+                 style = label.style_none, textcolor = guideColor, size = size.tiny)
+            opLbl := label.new(rightX, pO, text = " O " + str.tostring(pO, format.mintick),
+                 xloc = xloc.bar_index, yloc = yloc.price,
+                 style = label.style_none, textcolor = guideColor, size = size.tiny)
