@@ -86,6 +86,26 @@ Run it yourself:
 python3 scalper/scalper_backtest.py scalper/data/btcusdt_5m_sample.csv
 ```
 
+### Same strategy on the 15-minute timeframe
+
+Ran on `data/btcusdt_15m_sample.csv` — **200 real Binance BTC-USDT 15-minute
+candles** (~50 h).
+
+```
+Default (TP0.25/SL0.15/LB20/MB30):  7 trades, 28.6% win,  -0.81%
+Scaled  (TP0.6 /SL0.4 /LB30/MB60):  3 trades, 66.7% win,  +0.56%   <- best on window
+```
+
+Same pattern as 5m: the default 1m-tuned bracket loses; widening TP/SL **and**
+lengthening the time-stop + lookback flips this window positive. But it's only
+**3 trades over 50h** — almost certainly overfit to this sample, not a real edge.
+
+Run it yourself:
+```bash
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_15m_sample.csv
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_15m_sample.csv --tp 0.6 --sl 0.4 --lookback 30 --maxbars 60
+```
+
 For a statistically meaningful result, backtest over weeks/months:
 
 - **TradingView (recommended):** load the `.pine` strategy on a 1m BTCUSD chart
