@@ -52,6 +52,14 @@ slAtr      = input.float(1.0, "Stop-loss (xATR)",   minval = 0.1, step = 0.1, gr
 isAtr = bracket == "ATR"
 atr   = ta.atr(atrLen)
 
+// Setup-quality gate - only trade recognized price-action setups
+useSetup = input.bool(true,  "Require valid setup (don't trade blindly)", group = "Setup gate")
+trendLen = input.int(50,    "Trend anchor EMA",  minval = 2,   group = "Setup gate")
+bodyFrac = input.float(0.5, "Breakout body / range",  minval = 0.1, maxval = 1.0, step = 0.05, group = "Setup gate")
+rejWick  = input.float(0.4, "Reversion rejection wick / range", minval = 0.1, maxval = 1.0, step = 0.05, group = "Setup gate")
+volFloor = input.float(0.5, "Min bar range (xATR)", minval = 0.0, step = 0.1, group = "Setup gate")
+emaTrend = ta.ema(close, trendLen)
+
 // Breakout params
 lookback   = input.int(20,   "Breakout lookback (bars)", minval = 2, group = "Breakout")
 closeFrac  = input.float(0.34, "Candle close-position filter", minval = 0.05, maxval = 0.5, step = 0.01, group = "Breakout")
@@ -79,8 +87,21 @@ dev       = (close - ema) / ema
 revLong   = dev <= -devPct and close > open
 revShort  = dev >=  devPct and close < open
 
-longSig   = (isRev ? revLong  : brkLong)  and tradeLong
-shortSig  = (isRev ? revShort : brkShort) and tradeShort
+rawLong   = isRev ? revLong  : brkLong
+rawShort  = isRev ? revShort : brkShort
+
+// ---- setup-quality gate: trend alignment + candle confirmation + vol floor ----
+body      = math.abs(close - open)
+upWick    = high - math.max(open, close)
+loWick    = math.min(open, close) - low
+volOk     = not useSetup or rng >= volFloor * atr
+candLong  = not useSetup or (isRev ? loWick >= rejWick * rng : body >= bodyFrac * rng)
+candShort = not useSetup or (isRev ? upWick >= rejWick * rng : body >= bodyFrac * rng)
+trendUpOk = not useSetup or close > emaTrend
+trendDnOk = not useSetup or close < emaTrend
+
+longSig   = rawLong  and tradeLong  and volOk and trendUpOk and candLong
+shortSig  = rawShort and tradeShort and volOk and trendDnOk and candShort
 
 // ---------- Entries (filled at next bar open) ----------
 if longSig and strategy.position_size == 0
@@ -109,6 +130,7 @@ if strategy.position_size < 0
 
 // ---------- Visuals ----------
 plot(isRev ? ema : na, "EMA anchor", color = color.new(color.orange, 0))
+plot(useSetup ? emaTrend : na, "Trend anchor", color = color.new(color.blue, 40))
 plot(isRev ? na : hh,  "Range High", color = color.new(color.teal, 60))
 plot(isRev ? na : ll,  "Range Low",  color = color.new(color.maroon, 60))
 plotshape(longSig  and strategy.position_size == 0, "Long",  shape.triangleup,

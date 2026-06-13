@@ -51,7 +51,13 @@ ATR_LEN = 14           # ATR lookback for the atr bracket
 TP_ATR = 1.0           # take-profit = TP_ATR * ATR (atr bracket)
 SL_ATR = 1.0           # stop-loss   = SL_ATR * ATR (atr bracket)
 TRADE_LONG = True      # allow long entries
-TRADE_SHORT = True     # allow short entries (needs margin/futures on spot) to fade
+TRADE_SHORT = True     # allow short entries (needs margin/futures on spot)
+# --- setup-quality gate: only trade recognized price-action setups ---
+USE_SETUP = True       # require a valid setup (False = take every raw signal)
+TREND_LEN = 50         # trend anchor EMA; trades must align with its direction
+BODY_FRAC = 0.5        # (breakout) candle body must be >= this * range
+REJ_WICK = 0.40        # (reversion) rejection wick must be >= this * range
+VOL_FLOOR = 0.5        # bar range must be >= this * ATR (skip dead/chop bars) to fade
 FEE_PCT = 0.0004       # 0.04% taker fee per side (Binance spot taker)
 SLIPPAGE_PCT = 0.0001  # 0.01% slippage per side
 START_EQUITY = 10_000.0
@@ -127,47 +133,82 @@ def ema_series(bars: list[Bar], length: int) -> list[float]:
     return out
 
 
-def signal(bars: list[Bar], i: int, ema: list[float] | None = None) -> str | None:
-    """Return 'long'/'short'/None for a signal evaluated on bar i (closed)."""
+def signal(bars: list[Bar], i: int, ema_fast: list[float] | None = None,
+           ema_trend: list[float] | None = None,
+           atr: list[float] | None = None) -> str | None:
+    """Return 'long'/'short'/None for a signal evaluated on bar i (closed).
+
+    Produces a raw side from the active mode, then (if USE_SETUP) only confirms
+    it when a proper price-action setup is present: trend alignment + candle
+    confirmation + a volatility floor.
+    """
     b = bars[i]
-    if MODE == "reversion":
-        # Fade a stretch away from the EMA anchor, with a reversal candle.
-        if i < EMA_LEN or ema is None:
-            return None
-        anchor = ema[i]
-        dev = (b.c - anchor) / anchor
-        if dev <= -DEV_PCT and b.c > b.o:      # stretched below + bullish bar
-            return "long"
-        if dev >= DEV_PCT and b.c < b.o:        # stretched above + bearish bar
-            return "short"
-        return None
-    # ---- breakout (momentum) ----
-    if i < LOOKBACK:
-        return None
-    window = bars[i - LOOKBACK : i]
-    hh = max(bb.h for bb in window)
-    ll = min(bb.l for bb in window)
     rng = b.h - b.l
     if rng <= 0:
         return None
-    close_pos = (b.c - b.l) / rng  # 0 = closed on low, 1 = closed on high
-    bullish = b.c > b.o and close_pos >= (1 - CLOSE_FRAC)
-    bearish = b.c < b.o and close_pos <= CLOSE_FRAC
-    if b.c > hh and bullish:
-        return "long"
-    if b.c < ll and bearish:
-        return "short"
-    return None
+
+    # raw candidate side from the mode
+    side: str | None = None
+    if MODE == "reversion":
+        if i < EMA_LEN or ema_fast is None:
+            return None
+        dev = (b.c - ema_fast[i]) / ema_fast[i]
+        if dev <= -DEV_PCT and b.c > b.o:
+            side = "long"
+        elif dev >= DEV_PCT and b.c < b.o:
+            side = "short"
+    else:  # breakout
+        if i < LOOKBACK:
+            return None
+        hh = max(bb.h for bb in bars[i - LOOKBACK : i])
+        ll = min(bb.l for bb in bars[i - LOOKBACK : i])
+        close_pos = (b.c - b.l) / rng
+        if b.c > hh and b.c > b.o and close_pos >= (1 - CLOSE_FRAC):
+            side = "long"
+        elif b.c < ll and b.c < b.o and close_pos <= CLOSE_FRAC:
+            side = "short"
+    if side is None:
+        return None
+
+    if not USE_SETUP:
+        return side
+
+    # ---- setup-quality gate ----
+    # 1) volatility floor: ignore dead / choppy bars
+    if atr is not None and atr[i] > 0 and rng < VOL_FLOOR * atr[i]:
+        return None
+    # 2) trend alignment: only trade with the trend anchor
+    if ema_trend is not None and i >= TREND_LEN:
+        up = b.c > ema_trend[i]
+        if side == "long" and not up:
+            return None
+        if side == "short" and up:
+            return None
+    # 3) candle confirmation
+    body = abs(b.c - b.o)
+    up_wick = b.h - max(b.o, b.c)
+    lo_wick = min(b.o, b.c) - b.l
+    if MODE == "breakout":
+        if body < BODY_FRAC * rng:            # need a decisive thrust candle
+            return None
+    else:  # reversion needs a rejection wick in the trade direction
+        if side == "long" and lo_wick < REJ_WICK * rng:
+            return None
+        if side == "short" and up_wick < REJ_WICK * rng:
+            return None
+    return side
 
 
 def run(bars: list[Bar]) -> tuple[list[Trade], dict]:
     trades: list[Trade] = []
     n = len(bars)
-    ema = ema_series(bars, EMA_LEN) if MODE == "reversion" else None
-    atr = atr_series(bars, ATR_LEN) if BRACKET == "atr" else None
-    i = EMA_LEN if MODE == "reversion" else LOOKBACK
+    ema_fast = ema_series(bars, EMA_LEN)
+    ema_trend = ema_series(bars, TREND_LEN) if USE_SETUP else None
+    atr = atr_series(bars, ATR_LEN) if (BRACKET == "atr" or USE_SETUP) else None
+    warmup = max(LOOKBACK, EMA_LEN, ATR_LEN, TREND_LEN if USE_SETUP else 0)
+    i = warmup
     while i < n - 1:
-        sig = signal(bars, i, ema)
+        sig = signal(bars, i, ema_fast, ema_trend, atr)
         if sig is None or (sig == "long" and not TRADE_LONG) \
                 or (sig == "short" and not TRADE_SHORT):
             i += 1
@@ -360,12 +401,20 @@ def main() -> None:
                     help="take long entries only (spot-friendly)")
     ap.add_argument("--short-only", action="store_true", dest="short_only",
                     help="take short entries only")
+    ap.add_argument("--no-setup", action="store_true", dest="no_setup",
+                    help="disable the setup-quality gate (take every raw signal)")
+    ap.add_argument("--trend", type=int, help="trend anchor EMA length")
     ap.add_argument("--optimize", action="store_true",
                     help="grid-search on first half (train), report second half (test)")
     a = ap.parse_args()
 
     global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS, MODE, EMA_LEN, DEV_PCT
     global BRACKET, ATR_LEN, TP_ATR, SL_ATR, TRADE_LONG, TRADE_SHORT
+    global USE_SETUP, TREND_LEN
+    if a.no_setup:
+        USE_SETUP = False
+    if a.trend is not None:
+        TREND_LEN = a.trend
     if a.long_only:
         TRADE_SHORT = False
     if a.short_only:
@@ -415,6 +464,8 @@ def main() -> None:
               f"TP={TP_PCT*100:.2f}%  SL={SL_PCT*100:.2f}%  maxBars={MAX_BARS}")
     print(f"  Costs            : fee={FEE_PCT*100:.2f}%/side  "
           f"slippage={SLIPPAGE_PCT*100:.2f}%/side")
+    print(f"  Setup gate       : {'ON' if USE_SETUP else 'OFF'}"
+          + (f"  (trend EMA {TREND_LEN}, volFloor {VOL_FLOOR}xATR)" if USE_SETUP else ""))
     print("-" * 64)
     print(f"  Trades           : {s['trades']}  "
           f"({s['wins']}W / {s['losses']}L)")

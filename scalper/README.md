@@ -139,6 +139,32 @@ TP 0.3% / SL 0.6%`) that stayed **100% win** on both train and test halves.
 enough to call it an edge. High win rate ≠ profit: with TP<SL you must keep win
 rate well above ~66% to stay positive after costs.
 
+## Setup-quality gate — don't trade blindly
+
+By default the bot does **not** take every raw breakout/stretch. A signal is only
+acted on when a proper price-action **setup** is recognised (toggle off with
+`--no-setup` / Pine *Require valid setup*):
+
+1. **Trend alignment** — trade only with the `trend` anchor EMA (default 50):
+   longs require price above it, shorts below. This turns reversion into a
+   *buy-the-dip-in-an-uptrend / sell-the-rally-in-a-downtrend* setup rather than
+   blindly catching knives.
+2. **Candle confirmation** — breakouts need a decisive body (`body ≥ 0.5×range`);
+   reversions need a genuine **rejection wick** (`wick ≥ 0.4×range`) in the trade
+   direction.
+3. **Volatility floor** — skip dead/chop bars where `range < 0.5×ATR`.
+
+```bash
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_5m_sample.csv      # gate ON
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_5m_sample.csv --no-setup  # raw
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_15m_sample.csv --mode reversion --trend 30
+```
+
+The gate is intentionally selective — on small samples it may pass **0 trades**
+(it refuses marginal setups instead of forcing entries). Loosen `--trend` /
+rejection / body thresholds, or use more data, to get more (still-qualified)
+signals. In Pine the same controls live under the **Setup gate** group.
+
 ## Volatility-scaled stops (ATR bracket) — works across instruments
 
 Fixed-% stops don't transfer between instruments (BTC moves ~5x more than gold
