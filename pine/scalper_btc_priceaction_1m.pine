@@ -35,11 +35,22 @@ strategy("BTCUSD Scalper (Breakout + Reversion)", overlay = true,
 
 // ---------- Inputs ----------
 mode       = input.string("Reversion", "Mode", options = ["Breakout", "Reversion"])
-tpPct      = input.float(0.30, "Take-profit %", minval = 0.01, step = 0.01) / 100.0
-slPct      = input.float(0.45, "Stop-loss %",   minval = 0.01, step = 0.01) / 100.0
+bracket    = input.string("ATR", "Bracket sizing", options = ["Percent", "ATR"])
 maxBars    = input.int(20,   "Time-stop (bars in trade)", minval = 1)
 tradeLong  = input.bool(true, "Allow longs")
 tradeShort = input.bool(true, "Allow shorts")
+
+// Percent bracket
+tpPct      = input.float(0.30, "Take-profit %", minval = 0.01, step = 0.01, group = "Percent bracket") / 100.0
+slPct      = input.float(0.45, "Stop-loss %",   minval = 0.01, step = 0.01, group = "Percent bracket") / 100.0
+
+// ATR bracket (volatility-scaled - works across BTC, gold, FX, etc.)
+atrLen     = input.int(14,   "ATR length",          minval = 1,   group = "ATR bracket")
+tpAtr      = input.float(1.5, "Take-profit (xATR)", minval = 0.1, step = 0.1, group = "ATR bracket")
+slAtr      = input.float(1.0, "Stop-loss (xATR)",   minval = 0.1, step = 0.1, group = "ATR bracket")
+
+isAtr = bracket == "ATR"
+atr   = ta.atr(atrLen)
 
 // Breakout params
 lookback   = input.int(20,   "Breakout lookback (bars)", minval = 2, group = "Breakout")
@@ -81,15 +92,18 @@ if shortSig and strategy.position_size == 0
 var int barsInTrade = 0
 barsInTrade := strategy.position_size != 0 ? barsInTrade + 1 : 0
 
+tpDist = isAtr ? tpAtr * atr : close * tpPct
+slDist = isAtr ? slAtr * atr : close * slPct
+
 if strategy.position_size > 0
     e = strategy.position_avg_price
-    strategy.exit("L-x", from_entry = "L", limit = e * (1 + tpPct), stop = e * (1 - slPct))
+    strategy.exit("L-x", from_entry = "L", limit = e + tpDist, stop = e - slDist)
     if barsInTrade >= maxBars
         strategy.close("L", comment = "time")
 
 if strategy.position_size < 0
     e = strategy.position_avg_price
-    strategy.exit("S-x", from_entry = "S", limit = e * (1 - tpPct), stop = e * (1 + slPct))
+    strategy.exit("S-x", from_entry = "S", limit = e - tpDist, stop = e + slDist)
     if barsInTrade >= maxBars
         strategy.close("S", comment = "time")
 

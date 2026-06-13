@@ -139,6 +139,27 @@ TP 0.3% / SL 0.6%`) that stayed **100% win** on both train and test halves.
 enough to call it an edge. High win rate ≠ profit: with TP<SL you must keep win
 rate well above ~66% to stay positive after costs.
 
+## Volatility-scaled stops (ATR bracket) — works across instruments
+
+Fixed-% stops don't transfer between instruments (BTC moves ~5x more than gold
+intraday). The backtester and Pine strategy both support an **ATR bracket** that
+sizes the stop/target to recent volatility, so the *same* settings adapt to BTC,
+gold, FX, etc.:
+
+```bash
+# TP = 1.5x ATR, SL = 1.0x ATR (ATR length 14)
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_5m_sample.csv \
+    --bracket atr --atr 14 --tp-atr 1.5 --sl-atr 1.0
+# gold now actually trades (10 trades vs 0 with fixed %):
+python3 scalper/scalper_backtest.py scalper/data/paxg_xauusd_5m_sample.csv \
+    --mode reversion --dev 0.03 --bracket atr --atr 14 --tp-atr 1.0 --sl-atr 1.2
+```
+
+In Pine, set **Bracket sizing = ATR** (default) and tune `TP (xATR)` / `SL (xATR)`.
+Note: on these tiny in-repo samples the ATR bracket still nets negative — it
+fixes *signal generation across instruments*, not the need for real validation
+over months. Gold remains unprofitable at crypto fee levels regardless.
+
 ### Gold (XAUUSD) note
 
 True forex XAUUSD isn't on this crypto data source, so we tested **PAX Gold

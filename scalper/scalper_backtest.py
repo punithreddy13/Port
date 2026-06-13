@@ -45,7 +45,11 @@ SL_PCT = 0.0015        # stop-loss    = 0.15%  (reward:risk = 1.67 : 1)
 MAX_BARS = 30          # time-stop (bars) if neither TP nor SL is hit
 CLOSE_FRAC = 0.34      # candle must close within this fraction of its extreme
 EMA_LEN = 20           # (reversion) EMA anchor length
-DEV_PCT = 0.0015       # (reversion) min % stretch from EMA to fade
+DEV_PCT = 0.0015       # (reversion) min % stretch from EMA
+BRACKET = "pct"        # "pct" (fixed %) or "atr" (volatility-scaled)
+ATR_LEN = 14           # ATR lookback for the atr bracket
+TP_ATR = 1.0           # take-profit = TP_ATR * ATR (atr bracket)
+SL_ATR = 1.0           # stop-loss   = SL_ATR * ATR (atr bracket) to fade
 FEE_PCT = 0.0004       # 0.04% taker fee per side (Binance spot taker)
 SLIPPAGE_PCT = 0.0001  # 0.01% slippage per side
 START_EQUITY = 10_000.0
@@ -89,6 +93,25 @@ def load_csv(path: str) -> list[Bar]:
             )
     bars.sort(key=lambda b: b.ts)
     return bars
+
+
+def atr_series(bars: list[Bar], length: int) -> list[float]:
+    """Average True Range (simple MA of true range), aligned to bars."""
+    tr: list[float] = []
+    for i, b in enumerate(bars):
+        if i == 0:
+            tr.append(b.h - b.l)
+        else:
+            pc = bars[i - 1].c
+            tr.append(max(b.h - b.l, abs(b.h - pc), abs(b.l - pc)))
+    out: list[float] = []
+    run_sum = 0.0
+    for i, t in enumerate(tr):
+        run_sum += t
+        if i >= length:
+            run_sum -= tr[i - length]
+        out.append(run_sum / min(i + 1, length))
+    return out
 
 
 def ema_series(bars: list[Bar], length: int) -> list[float]:
@@ -139,6 +162,7 @@ def run(bars: list[Bar]) -> tuple[list[Trade], dict]:
     trades: list[Trade] = []
     n = len(bars)
     ema = ema_series(bars, EMA_LEN) if MODE == "reversion" else None
+    atr = atr_series(bars, ATR_LEN) if BRACKET == "atr" else None
     i = EMA_LEN if MODE == "reversion" else LOOKBACK
     while i < n - 1:
         sig = signal(bars, i, ema)
@@ -150,12 +174,16 @@ def run(bars: list[Bar]) -> tuple[list[Trade], dict]:
         slip = SLIPPAGE_PCT if sig == "long" else -SLIPPAGE_PCT
         entry = entry_bar.o * (1 + slip)
 
-        if sig == "long":
-            tp = entry * (1 + TP_PCT)
-            sl = entry * (1 - SL_PCT)
+        if BRACKET == "atr":
+            tp_dist = TP_ATR * atr[i]
+            sl_dist = SL_ATR * atr[i]
         else:
-            tp = entry * (1 - TP_PCT)
-            sl = entry * (1 + SL_PCT)
+            tp_dist = entry * TP_PCT
+            sl_dist = entry * SL_PCT
+        if sig == "long":
+            tp, sl = entry + tp_dist, entry - sl_dist
+        else:
+            tp, sl = entry - tp_dist, entry + sl_dist
 
         exit_price = None
         exit_ts = entry_bar.ts
@@ -321,13 +349,26 @@ def main() -> None:
     ap.add_argument("--mode", choices=["breakout", "reversion"], help="strategy mode")
     ap.add_argument("--ema", type=int, help="(reversion) EMA anchor length")
     ap.add_argument("--dev", type=float, help="(reversion) %% stretch from EMA")
+    ap.add_argument("--bracket", choices=["pct", "atr"], help="stop/target sizing")
+    ap.add_argument("--atr", type=int, help="ATR lookback (atr bracket)")
+    ap.add_argument("--tp-atr", type=float, dest="tp_atr", help="TP = N*ATR")
+    ap.add_argument("--sl-atr", type=float, dest="sl_atr", help="SL = N*ATR")
     ap.add_argument("--optimize", action="store_true",
                     help="grid-search on first half (train), report second half (test)")
     a = ap.parse_args()
 
     global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS, MODE, EMA_LEN, DEV_PCT
+    global BRACKET, ATR_LEN, TP_ATR, SL_ATR
     if a.mode is not None:
         MODE = a.mode
+    if a.bracket is not None:
+        BRACKET = a.bracket
+    if a.atr is not None:
+        ATR_LEN = a.atr
+    if a.tp_atr is not None:
+        TP_ATR = a.tp_atr
+    if a.sl_atr is not None:
+        SL_ATR = a.sl_atr
     if a.tp is not None:
         TP_PCT = a.tp / 100.0
     if a.sl is not None:
@@ -355,8 +396,12 @@ def main() -> None:
     print(f"  Data file        : {path}")
     print(f"  Bars             : {s['bars']}  (~{s['span_minutes']:.0f} min "
           f"= {s['span_minutes']/60:.1f} h)")
-    print(f"  Params           : lookback={LOOKBACK}  TP={TP_PCT*100:.2f}%  "
-          f"SL={SL_PCT*100:.2f}%  maxBars={MAX_BARS}")
+    if BRACKET == "atr":
+        print(f"  Params           : mode={MODE}  bracket=ATR(len={ATR_LEN})  "
+              f"TP={TP_ATR}x  SL={SL_ATR}x  maxBars={MAX_BARS}")
+    else:
+        print(f"  Params           : mode={MODE}  lookback={LOOKBACK}  "
+              f"TP={TP_PCT*100:.2f}%  SL={SL_PCT*100:.2f}%  maxBars={MAX_BARS}")
     print(f"  Costs            : fee={FEE_PCT*100:.2f}%/side  "
           f"slippage={SLIPPAGE_PCT*100:.2f}%/side")
     print("-" * 64)
