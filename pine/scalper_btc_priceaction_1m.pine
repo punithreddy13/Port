@@ -1,0 +1,83 @@
+//@version=5
+// =============================================================================
+// BTCUSD 1m Price-Action Scalper  (Range-Break Pullback)
+// -----------------------------------------------------------------------------
+// Pure price-action scalping strategy for the 1-minute BTCUSD chart. No
+// oscillators - it reads raw market structure (the rolling high/low of the last
+// `lookback` bars) and trades momentum breakouts confirmed by the breakout
+// candle itself.
+//
+//   LONG  : close > highest_high(prev lookback)  AND  bullish candle that closes
+//           in the upper third of its range.
+//   SHORT : close < lowest_low(prev lookback)    AND  bearish candle that closes
+//           in the lower third of its range.
+//
+// Each trade uses a fixed % bracket (take-profit / stop-loss) plus a time-stop
+// of `maxBars` bars. Logic mirrors scalper/scalper_backtest.py 1:1 so the Python
+// backtest and the TradingView Strategy Tester agree.
+//
+// HOW TO BACKTEST:
+//   1. Open BTCUSD (e.g. BINANCE:BTCUSDT) on the 1-minute timeframe.
+//   2. Pine Editor -> paste this file -> Add to chart.
+//   3. Open the "Strategy Tester" tab to read net profit, win rate, profit
+//      factor, max drawdown and the full trade list over real history.
+// =============================================================================
+
+strategy("BTCUSD 1m Price-Action Scalper", overlay = true,
+     initial_capital = 10000,
+     default_qty_type = strategy.percent_of_equity, default_qty_value = 100,
+     commission_type = strategy.commission.percent, commission_value = 0.04,
+     slippage = 1, pyramiding = 0, calc_on_every_tick = false)
+
+// ---------- Inputs ----------
+lookback   = input.int(20,   "Breakout lookback (bars)", minval = 2)
+tpPct      = input.float(0.25, "Take-profit %", minval = 0.01, step = 0.01) / 100.0
+slPct      = input.float(0.15, "Stop-loss %",   minval = 0.01, step = 0.01) / 100.0
+maxBars    = input.int(30,   "Time-stop (bars in trade)", minval = 1)
+closeFrac  = input.float(0.34, "Candle close-position filter", minval = 0.05, maxval = 0.5, step = 0.01)
+tradeLong  = input.bool(true, "Allow longs")
+tradeShort = input.bool(true, "Allow shorts")
+
+// ---------- Breakout range (previous `lookback` closed bars, excl. current) ----------
+hh = ta.highest(high, lookback)[1]
+ll = ta.lowest(low,  lookback)[1]
+
+rng      = high - low
+closePos = rng > 0 ? (close - low) / rng : 0.5      // 0 = on low, 1 = on high
+bullish  = close > open and closePos >= (1 - closeFrac)
+bearish  = close < open and closePos <= closeFrac
+
+longSig  = tradeLong  and not na(hh) and close > hh and bullish
+shortSig = tradeShort and not na(ll) and close < ll and bearish
+
+// ---------- Entries (filled at next bar open via market order) ----------
+if longSig and strategy.position_size == 0
+    strategy.entry("L", strategy.long)
+if shortSig and strategy.position_size == 0
+    strategy.entry("S", strategy.short)
+
+// ---------- Bracket + time-stop exits ----------
+var int barsInTrade = 0
+barsInTrade := strategy.position_size != 0 ? barsInTrade + 1 : 0
+
+if strategy.position_size > 0
+    entryP = strategy.position_avg_price
+    strategy.exit("L-x", from_entry = "L",
+         limit = entryP * (1 + tpPct), stop = entryP * (1 - slPct))
+    if barsInTrade >= maxBars
+        strategy.close("L", comment = "time")
+
+if strategy.position_size < 0
+    entryP = strategy.position_avg_price
+    strategy.exit("S-x", from_entry = "S",
+         limit = entryP * (1 - tpPct), stop = entryP * (1 + slPct))
+    if barsInTrade >= maxBars
+        strategy.close("S", comment = "time")
+
+// ---------- Visuals ----------
+plot(hh, "Range High", color = color.new(color.teal, 60))
+plot(ll, "Range Low",  color = color.new(color.maroon, 60))
+plotshape(longSig  and strategy.position_size == 0, "Long",  shape.triangleup,
+     location.belowbar, color.new(color.teal, 0),   size = size.tiny)
+plotshape(shortSig and strategy.position_size == 0, "Short", shape.triangledown,
+     location.abovebar, color.new(color.red, 0),    size = size.tiny)
