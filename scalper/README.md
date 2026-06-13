@@ -62,6 +62,30 @@ conditions to be profitable. **A 3.3-hour, 6-trade window is far too small to
 judge an edge**; treat it as a wired-up, runnable demonstration on genuine data,
 not a verdict on the strategy.
 
+### Same strategy on the 5-minute timeframe
+
+Ran on `data/btcusdt_5m_sample.csv` — **200 real Binance BTC-USDT 5-minute
+candles** (~16.6 h), identical parameters:
+
+```
+Trades           : 7  (2W / 5L)
+Win rate         : 28.6%
+Avg trade        : -0.116%  (net of costs)
+Profit factor    : 0.30
+Max drawdown     : 0.98%
+Total return     : -0.81%
+```
+
+Marginally better than 1m (higher win rate, fewer false breaks) but still net
+negative on this window. The fixed 0.25%/0.15% bracket is tuned for 1m noise; on
+5m, candles are ~3-5x larger so the stop is hit inside normal range. For 5m,
+scale TP/SL up (e.g. TP 0.6% / SL 0.4%) and/or widen `lookback`.
+
+Run it yourself:
+```bash
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_5m_sample.csv
+```
+
 For a statistically meaningful result, backtest over weeks/months:
 
 - **TradingView (recommended):** load the `.pine` strategy on a 1m BTCUSD chart
