@@ -155,7 +155,9 @@ python3 scalper/scalper_backtest.py scalper/data/paxg_xauusd_5m_sample.csv \
     --mode reversion --dev 0.03 --bracket atr --atr 14 --tp-atr 1.0 --sl-atr 1.2
 ```
 
-In Pine, set **Bracket sizing = ATR** (default) and tune `TP (xATR)` / `SL (xATR)`.
+In Pine, set **Bracket sizing = ATR** (default)
+
+**Direction control:** the engine trades both sides by default. Use `--long-only` (spot-friendly) or `--short-only` to restrict; in Pine use the *Allow longs* / *Allow shorts* toggles. and tune `TP (xATR)` / `SL (xATR)`.
 Note: on these tiny in-repo samples the ATR bracket still nets negative — it
 fixes *signal generation across instruments*, not the need for real validation
 over months. Gold remains unprofitable at crypto fee levels regardless.

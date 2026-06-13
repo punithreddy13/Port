@@ -49,7 +49,9 @@ DEV_PCT = 0.0015       # (reversion) min % stretch from EMA
 BRACKET = "pct"        # "pct" (fixed %) or "atr" (volatility-scaled)
 ATR_LEN = 14           # ATR lookback for the atr bracket
 TP_ATR = 1.0           # take-profit = TP_ATR * ATR (atr bracket)
-SL_ATR = 1.0           # stop-loss   = SL_ATR * ATR (atr bracket) to fade
+SL_ATR = 1.0           # stop-loss   = SL_ATR * ATR (atr bracket)
+TRADE_LONG = True      # allow long entries
+TRADE_SHORT = True     # allow short entries (needs margin/futures on spot) to fade
 FEE_PCT = 0.0004       # 0.04% taker fee per side (Binance spot taker)
 SLIPPAGE_PCT = 0.0001  # 0.01% slippage per side
 START_EQUITY = 10_000.0
@@ -166,7 +168,8 @@ def run(bars: list[Bar]) -> tuple[list[Trade], dict]:
     i = EMA_LEN if MODE == "reversion" else LOOKBACK
     while i < n - 1:
         sig = signal(bars, i, ema)
-        if sig is None:
+        if sig is None or (sig == "long" and not TRADE_LONG) \
+                or (sig == "short" and not TRADE_SHORT):
             i += 1
             continue
 
@@ -353,12 +356,20 @@ def main() -> None:
     ap.add_argument("--atr", type=int, help="ATR lookback (atr bracket)")
     ap.add_argument("--tp-atr", type=float, dest="tp_atr", help="TP = N*ATR")
     ap.add_argument("--sl-atr", type=float, dest="sl_atr", help="SL = N*ATR")
+    ap.add_argument("--long-only", action="store_true", dest="long_only",
+                    help="take long entries only (spot-friendly)")
+    ap.add_argument("--short-only", action="store_true", dest="short_only",
+                    help="take short entries only")
     ap.add_argument("--optimize", action="store_true",
                     help="grid-search on first half (train), report second half (test)")
     a = ap.parse_args()
 
     global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS, MODE, EMA_LEN, DEV_PCT
-    global BRACKET, ATR_LEN, TP_ATR, SL_ATR
+    global BRACKET, ATR_LEN, TP_ATR, SL_ATR, TRADE_LONG, TRADE_SHORT
+    if a.long_only:
+        TRADE_SHORT = False
+    if a.short_only:
+        TRADE_LONG = False
     if a.mode is not None:
         MODE = a.mode
     if a.bracket is not None:
