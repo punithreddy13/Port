@@ -1,56 +1,77 @@
 //@version=5
 // =============================================================================
-// BTCUSD 1m Price-Action Scalper  (Range-Break Pullback)
+// BTCUSD Scalper - Breakout + Mean-Reversion  (price action, 1m / 3m / 5m / 15m)
 // -----------------------------------------------------------------------------
-// Pure price-action scalping strategy for the 1-minute BTCUSD chart. No
-// oscillators - it reads raw market structure (the rolling high/low of the last
-// `lookback` bars) and trades momentum breakouts confirmed by the breakout
-// candle itself.
+// Two price-action scalping engines in one strategy, switchable via the "Mode"
+// input. Logic is a 1:1 port of scalper/scalper_backtest.py, so TradingView's
+// Strategy Tester reproduces the Python out-of-sample results over full history
+// (run it on months of BTCUSD data: Nov / Dec / Jan / Feb, any of 1/3/5/15m).
 //
-//   LONG  : close > highest_high(prev lookback)  AND  bullish candle that closes
-//           in the upper third of its range.
-//   SHORT : close < lowest_low(prev lookback)    AND  bearish candle that closes
-//           in the lower third of its range.
+//   BREAKOUT  (momentum): enter on a close beyond the rolling N-bar high/low,
+//             confirmed by a strong candle closing near its extreme.
+//   REVERSION (mean-revert, higher win rate): fade a stretch away from an EMA
+//             anchor with a reversal candle; take a small profit as price snaps
+//             back. This is the mode to use when you want >50% of trades green.
 //
-// Each trade uses a fixed % bracket (take-profit / stop-loss) plus a time-stop
-// of `maxBars` bars. Logic mirrors scalper/scalper_backtest.py 1:1 so the Python
-// backtest and the TradingView Strategy Tester agree.
+// Every trade uses a fixed % bracket (TP / SL) plus a time-stop of `maxBars`.
 //
-// HOW TO BACKTEST:
-//   1. Open BTCUSD (e.g. BINANCE:BTCUSDT) on the 1-minute timeframe.
-//   2. Pine Editor -> paste this file -> Add to chart.
-//   3. Open the "Strategy Tester" tab to read net profit, win rate, profit
-//      factor, max drawdown and the full trade list over real history.
+// SUGGESTED PRESETS  (set Mode + these in the inputs; tune in Strategy Tester)
+//   1m  Reversion : EMA 20, dev 0.15%, TP 0.20% / SL 0.30%, time-stop 20
+//   3m  Reversion : EMA 20, dev 0.20%, TP 0.30% / SL 0.45%, time-stop 20
+//   5m  Reversion : EMA 20, dev 0.25%, TP 0.40% / SL 0.60%, time-stop 20
+//   15m Reversion : EMA 20, dev 0.30%, TP 0.50% / SL 0.70%, time-stop 16
+//   any Breakout  : lookback 20-30, TP 0.5-0.6% / SL 0.35-0.4%, time-stop 40-60
+//
+// REALITY CHECK: high win rate != profit. With TP < SL you need win rate well
+// above ~66% to stay positive after fees. Validate over months and forward
+// (paper) test before risking real money. Educational tool, not advice.
 // =============================================================================
 
-strategy("BTCUSD 1m Price-Action Scalper", overlay = true,
+strategy("BTCUSD Scalper (Breakout + Reversion)", overlay = true,
      initial_capital = 10000,
      default_qty_type = strategy.percent_of_equity, default_qty_value = 100,
      commission_type = strategy.commission.percent, commission_value = 0.04,
      slippage = 1, pyramiding = 0, calc_on_every_tick = false)
 
 // ---------- Inputs ----------
-lookback   = input.int(20,   "Breakout lookback (bars)", minval = 2)
-tpPct      = input.float(0.25, "Take-profit %", minval = 0.01, step = 0.01) / 100.0
-slPct      = input.float(0.15, "Stop-loss %",   minval = 0.01, step = 0.01) / 100.0
-maxBars    = input.int(30,   "Time-stop (bars in trade)", minval = 1)
-closeFrac  = input.float(0.34, "Candle close-position filter", minval = 0.05, maxval = 0.5, step = 0.01)
+mode       = input.string("Reversion", "Mode", options = ["Breakout", "Reversion"])
+tpPct      = input.float(0.30, "Take-profit %", minval = 0.01, step = 0.01) / 100.0
+slPct      = input.float(0.45, "Stop-loss %",   minval = 0.01, step = 0.01) / 100.0
+maxBars    = input.int(20,   "Time-stop (bars in trade)", minval = 1)
 tradeLong  = input.bool(true, "Allow longs")
 tradeShort = input.bool(true, "Allow shorts")
 
-// ---------- Breakout range (previous `lookback` closed bars, excl. current) ----------
-hh = ta.highest(high, lookback)[1]
-ll = ta.lowest(low,  lookback)[1]
+// Breakout params
+lookback   = input.int(20,   "Breakout lookback (bars)", minval = 2, group = "Breakout")
+closeFrac  = input.float(0.34, "Candle close-position filter", minval = 0.05, maxval = 0.5, step = 0.01, group = "Breakout")
 
-rng      = high - low
-closePos = rng > 0 ? (close - low) / rng : 0.5      // 0 = on low, 1 = on high
-bullish  = close > open and closePos >= (1 - closeFrac)
-bearish  = close < open and closePos <= closeFrac
+// Reversion params
+emaLen     = input.int(20,   "EMA anchor length", minval = 2, group = "Reversion")
+devPct     = input.float(0.20, "Min % stretch from EMA", minval = 0.01, step = 0.01, group = "Reversion") / 100.0
 
-longSig  = tradeLong  and not na(hh) and close > hh and bullish
-shortSig = tradeShort and not na(ll) and close < ll and bearish
+isRev = mode == "Reversion"
 
-// ---------- Entries (filled at next bar open via market order) ----------
+// ---------- Signals ----------
+// Breakout: close beyond prior N-bar extreme + strong candle.
+hh        = ta.highest(high, lookback)[1]
+ll        = ta.lowest(low,  lookback)[1]
+rng       = high - low
+closePos  = rng > 0 ? (close - low) / rng : 0.5
+bThrust   = close > open and closePos >= (1 - closeFrac)
+bDrop     = close < open and closePos <= closeFrac
+brkLong   = not na(hh) and close > hh and bThrust
+brkShort  = not na(ll) and close < ll and bDrop
+
+// Reversion: stretch from EMA anchor + reversal candle.
+ema       = ta.ema(close, emaLen)
+dev       = (close - ema) / ema
+revLong   = dev <= -devPct and close > open
+revShort  = dev >=  devPct and close < open
+
+longSig   = (isRev ? revLong  : brkLong)  and tradeLong
+shortSig  = (isRev ? revShort : brkShort) and tradeShort
+
+// ---------- Entries (filled at next bar open) ----------
 if longSig and strategy.position_size == 0
     strategy.entry("L", strategy.long)
 if shortSig and strategy.position_size == 0
@@ -61,23 +82,22 @@ var int barsInTrade = 0
 barsInTrade := strategy.position_size != 0 ? barsInTrade + 1 : 0
 
 if strategy.position_size > 0
-    entryP = strategy.position_avg_price
-    strategy.exit("L-x", from_entry = "L",
-         limit = entryP * (1 + tpPct), stop = entryP * (1 - slPct))
+    e = strategy.position_avg_price
+    strategy.exit("L-x", from_entry = "L", limit = e * (1 + tpPct), stop = e * (1 - slPct))
     if barsInTrade >= maxBars
         strategy.close("L", comment = "time")
 
 if strategy.position_size < 0
-    entryP = strategy.position_avg_price
-    strategy.exit("S-x", from_entry = "S",
-         limit = entryP * (1 - tpPct), stop = entryP * (1 + slPct))
+    e = strategy.position_avg_price
+    strategy.exit("S-x", from_entry = "S", limit = e * (1 - tpPct), stop = e * (1 + slPct))
     if barsInTrade >= maxBars
         strategy.close("S", comment = "time")
 
 // ---------- Visuals ----------
-plot(hh, "Range High", color = color.new(color.teal, 60))
-plot(ll, "Range Low",  color = color.new(color.maroon, 60))
+plot(isRev ? ema : na, "EMA anchor", color = color.new(color.orange, 0))
+plot(isRev ? na : hh,  "Range High", color = color.new(color.teal, 60))
+plot(isRev ? na : ll,  "Range Low",  color = color.new(color.maroon, 60))
 plotshape(longSig  and strategy.position_size == 0, "Long",  shape.triangleup,
-     location.belowbar, color.new(color.teal, 0),   size = size.tiny)
+     location.belowbar, color.new(color.teal, 0), size = size.tiny)
 plotshape(shortSig and strategy.position_size == 0, "Short", shape.triangledown,
-     location.abovebar, color.new(color.red, 0),    size = size.tiny)
+     location.abovebar, color.new(color.red, 0),  size = size.tiny)

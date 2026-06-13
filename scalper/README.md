@@ -148,9 +148,18 @@ build sandbox, and price data only arrives 100 candles at a time. One month of
 here is not practical. To run the **real multi-month** backtest you asked for:
 
 1. **TradingView (no setup):** load `pine/scalper_btc_priceaction_1m.pine` on a
-   1m/3m/5m BTCUSD chart → Strategy Tester reports win rate, profit factor, net
-   profit, and max drawdown over full history. This is the fastest path to a
-   trustworthy, months-long, multi-timeframe result.
+   1m/3m/5m/15m BTCUSD chart → Strategy Tester reports win rate, profit factor,
+   net profit, and max drawdown over full history. This is the fastest path to a
+   trustworthy, months-long, multi-timeframe result. The Pine strategy has a
+   **Mode** switch (Breakout / Reversion) matching this engine, plus per-
+   timeframe presets in the file header (use **Reversion** for higher win rate):
+
+   | TF  | Mode      | EMA | dev   | TP    | SL    | time-stop |
+   | --- | --------- | --- | ----- | ----- | ----- | --------- |
+   | 1m  | Reversion | 20  | 0.15% | 0.20% | 0.30% | 20 |
+   | 3m  | Reversion | 20  | 0.20% | 0.30% | 0.45% | 20 |
+   | 5m  | Reversion | 20  | 0.25% | 0.40% | 0.60% | 20 |
+   | 15m | Reversion | 20  | 0.30% | 0.50% | 0.70% | 16 |
 2. **Local Python (full control):** on any machine with internet,
    ```bash
    python3 scalper/fetch_data.py --limit 2000 --out scalper/data/btc_1m.csv
