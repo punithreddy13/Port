@@ -214,7 +214,26 @@ def compute_stats(trades: list[Trade], bars: list[Bar]) -> dict:
 
 
 def main() -> None:
-    path = sys.argv[1] if len(sys.argv) > 1 else "scalper/data/btcusdt_1m_sample.csv"
+    import argparse
+    ap = argparse.ArgumentParser(description="Price-action scalper backtest")
+    ap.add_argument("csv", nargs="?", default="scalper/data/btcusdt_1m_sample.csv")
+    ap.add_argument("--tp", type=float, help="take-profit %% (e.g. 0.6)")
+    ap.add_argument("--sl", type=float, help="stop-loss %% (e.g. 0.4)")
+    ap.add_argument("--lookback", type=int, help="breakout lookback (bars)")
+    ap.add_argument("--maxbars", type=int, help="time-stop (bars)")
+    a = ap.parse_args()
+
+    global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS
+    if a.tp is not None:
+        TP_PCT = a.tp / 100.0
+    if a.sl is not None:
+        SL_PCT = a.sl / 100.0
+    if a.lookback is not None:
+        LOOKBACK = a.lookback
+    if a.maxbars is not None:
+        MAX_BARS = a.maxbars
+
+    path = a.csv
     bars = load_csv(path)
     trades, s = run(bars)
 
