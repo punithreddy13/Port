@@ -139,6 +139,25 @@ TP 0.3% / SL 0.6%`) that stayed **100% win** on both train and test halves.
 enough to call it an edge. High win rate ≠ profit: with TP<SL you must keep win
 rate well above ~66% to stay positive after costs.
 
+### Gold (XAUUSD) note
+
+True forex XAUUSD isn't on this crypto data source, so we tested **PAX Gold
+(PAXG-USDT)**, which tracks spot gold ~1:1 (`data/paxg_xauusd_5m_sample.csv`,
+200 real 5m bars ≈ 16.6h, ~$4,210):
+
+```
+Breakout default :  4 trades, 0% win, -0.51%
+Reversion default:  0 trades (never triggers - too flat)
+Reversion, gold-scaled (dev 0.05% / TP 0.06% / SL 0.10%): 3 trades, 0% win, -0.06%
+```
+
+**Lesson:** gold's intraday range here was only ~0.46% over 16h, so a %-based
+scalper barely triggers, and the round-trip cost (~0.10% with crypto fees)
+**exceeds most 5m candle moves** - you can't scalp it profitably this way. Gold
+needs much tighter spreads (a real XAUUSD broker, not crypto fees), wider
+timeframes, or a points-based (not %-based) stop/target. Different instrument,
+different regime - the BTC presets do not transfer.
+
 ### Why "months of 1m data" can't be validated *in this tool* (yet)
 
 This backtester is correct and runs on any CSV, but the data it ships with is
