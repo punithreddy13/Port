@@ -116,6 +116,55 @@ For a statistically meaningful result, backtest over weeks/months:
   python3 scalper/scalper_backtest.py scalper/data/btcusdt_1m.csv
   ```
 
+## Higher win-rate: mean-reversion mode + out-of-sample testing
+
+The breakout mode is a *momentum* strategy — it wins ~17-40% of trades (big
+winners, many small false breaks). To target **≥50% of trades in profit**, the
+backtester also ships a **mean-reversion mode** (`--mode reversion`): it fades a
+stretch away from an EMA anchor and takes a small profit as price snaps back —
+which structurally wins more often.
+
+```bash
+# mean-reversion scalper
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_15m_sample.csv --mode reversion
+
+# out-of-sample test: tune on first half, judge on second half (anti-overfit)
+python3 scalper/scalper_backtest.py scalper/data/btcusdt_15m_sample.csv --optimize
+```
+
+On the real 15m sample, reversion wins **47.8%** of trades full-sample, and the
+`--optimize` walk-forward picked a reversion config (`EMA20, dev 0.2%,
+TP 0.3% / SL 0.6%`) that stayed **100% win** on both train and test halves.
+**But** each test half here is only ~100 bars / 2-3 trades — *nowhere near*
+enough to call it an edge. High win rate ≠ profit: with TP<SL you must keep win
+rate well above ~66% to stay positive after costs.
+
+### Why "months of 1m data" can't be validated *in this tool* (yet)
+
+This backtester is correct and runs on any CSV, but the data it ships with is
+small because of an environment limit: there is **no outbound internet** in the
+build sandbox, and price data only arrives 100 candles at a time. One month of
+1-minute candles is ~43,000 bars — assembling Nov/Dec/Jan/Feb of minute data
+here is not practical. To run the **real multi-month** backtest you asked for:
+
+1. **TradingView (no setup):** load `pine/scalper_btc_priceaction_1m.pine` on a
+   1m/3m/5m BTCUSD chart → Strategy Tester reports win rate, profit factor, net
+   profit, and max drawdown over full history. This is the fastest path to a
+   trustworthy, months-long, multi-timeframe result.
+2. **Local Python (full control):** on any machine with internet,
+   ```bash
+   python3 scalper/fetch_data.py --limit 2000 --out scalper/data/btc_1m.csv
+   python3 scalper/scalper_backtest.py scalper/data/btc_1m.csv --optimize
+   ```
+   `fetch_data.py` paginates as far back as the provider allows, so you can build
+   month-long 1m/5m files and run the same out-of-sample optimizer.
+
+> ⚠️ **Reality check.** Nothing here is a validated, "trade-on-my-behalf"
+> profitable bot — and no honest backtest on a few hundred bars could be. A
+> system worth risking money on needs months of out-of-sample data, realistic
+> fee/slippage/funding modelling, and forward (paper) testing first. Treat this
+> as a research harness, not trading advice.
+
 ## Tuning ideas
 
 - Widen `lookback` (30–50) or require a larger breakout buffer to cut false

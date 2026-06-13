@@ -38,11 +38,14 @@ import sys
 from dataclasses import dataclass
 
 # ----------------------------- Parameters -----------------------------------
+MODE = "breakout"      # "breakout" (momentum) or "reversion" (mean-reversion)
 LOOKBACK = 20          # bars used to define the breakout range
 TP_PCT = 0.0025        # take-profit  = 0.25%
 SL_PCT = 0.0015        # stop-loss    = 0.15%  (reward:risk = 1.67 : 1)
 MAX_BARS = 30          # time-stop (bars) if neither TP nor SL is hit
 CLOSE_FRAC = 0.34      # candle must close within this fraction of its extreme
+EMA_LEN = 20           # (reversion) EMA anchor length
+DEV_PCT = 0.0015       # (reversion) min % stretch from EMA to fade
 FEE_PCT = 0.0004       # 0.04% taker fee per side (Binance spot taker)
 SLIPPAGE_PCT = 0.0001  # 0.01% slippage per side
 START_EQUITY = 10_000.0
@@ -88,14 +91,37 @@ def load_csv(path: str) -> list[Bar]:
     return bars
 
 
-def signal(bars: list[Bar], i: int) -> str | None:
+def ema_series(bars: list[Bar], length: int) -> list[float]:
+    """Exponential moving average of close, aligned to bars."""
+    k = 2.0 / (length + 1)
+    out: list[float] = []
+    prev = bars[0].c
+    for b in bars:
+        prev = b.c * k + prev * (1 - k)
+        out.append(prev)
+    return out
+
+
+def signal(bars: list[Bar], i: int, ema: list[float] | None = None) -> str | None:
     """Return 'long'/'short'/None for a signal evaluated on bar i (closed)."""
+    b = bars[i]
+    if MODE == "reversion":
+        # Fade a stretch away from the EMA anchor, with a reversal candle.
+        if i < EMA_LEN or ema is None:
+            return None
+        anchor = ema[i]
+        dev = (b.c - anchor) / anchor
+        if dev <= -DEV_PCT and b.c > b.o:      # stretched below + bullish bar
+            return "long"
+        if dev >= DEV_PCT and b.c < b.o:        # stretched above + bearish bar
+            return "short"
+        return None
+    # ---- breakout (momentum) ----
     if i < LOOKBACK:
         return None
     window = bars[i - LOOKBACK : i]
-    hh = max(b.h for b in window)
-    ll = min(b.l for b in window)
-    b = bars[i]
+    hh = max(bb.h for bb in window)
+    ll = min(bb.l for bb in window)
     rng = b.h - b.l
     if rng <= 0:
         return None
@@ -111,10 +137,11 @@ def signal(bars: list[Bar], i: int) -> str | None:
 
 def run(bars: list[Bar]) -> tuple[list[Trade], dict]:
     trades: list[Trade] = []
-    i = LOOKBACK
     n = len(bars)
+    ema = ema_series(bars, EMA_LEN) if MODE == "reversion" else None
+    i = EMA_LEN if MODE == "reversion" else LOOKBACK
     while i < n - 1:
-        sig = signal(bars, i)
+        sig = signal(bars, i, ema)
         if sig is None:
             i += 1
             continue
@@ -213,6 +240,76 @@ def compute_stats(trades: list[Trade], bars: list[Bar]) -> dict:
     }
 
 
+def optimize(bars: list[Bar]) -> None:
+    """Walk-forward style check: tune on the first half, judge on the second.
+
+    Picks the config with the best TRAIN expectancy among those that take a
+    reasonable number of trades, then prints its out-of-sample TEST result.
+    A config is only trustworthy if TEST win rate / return hold up vs TRAIN.
+    """
+    global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS, MODE, EMA_LEN, DEV_PCT
+    mid = len(bars) // 2
+    train, test = bars[:mid], bars[mid:]
+    min_trades = max(5, mid // 40)   # require enough train trades to mean anything
+
+    # (mode, tp%, sl%, p1, p2)  p1/p2 = lookback/maxbars (breakout) or ema/dev% (reversion)
+    grid = []
+    for tp, sl in [(0.2, 0.15), (0.25, 0.2), (0.3, 0.25), (0.4, 0.3), (0.5, 0.4)]:
+        for lb in (15, 20, 30):
+            for mb in (20, 40, 60):
+                grid.append(("breakout", tp, sl, lb, mb))
+    for tp, sl in [(0.15, 0.3), (0.2, 0.4), (0.2, 0.5), (0.25, 0.5), (0.3, 0.6)]:
+        for em in (15, 20, 30):
+            for dv in (0.1, 0.15, 0.2):
+                grid.append(("reversion", tp, sl, em, dv))
+
+    def set_params(combo):
+        global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS, MODE, EMA_LEN, DEV_PCT
+        m, tp, sl, p1, p2 = combo
+        MODE, TP_PCT, SL_PCT = m, tp / 100.0, sl / 100.0
+        if m == "breakout":
+            LOOKBACK, MAX_BARS = int(p1), int(p2)
+        else:
+            EMA_LEN, DEV_PCT, MAX_BARS = int(p1), p2 / 100.0, 20
+
+    best = None
+    for combo in grid:
+        set_params(combo)
+        _, s = run(train)
+        if s["trades"] < min_trades:
+            continue
+        score = s["avg_trade_pct"]            # expectancy per trade (net of costs)
+        if best is None or score > best[1]:
+            best = (combo, score, s)
+
+    if best is None:
+        print("No config produced enough trades on the train half.")
+        return
+
+    combo, _, s_tr = best
+    set_params(combo)
+    _, s_te = run(test)
+
+    m, tp, sl, p1, p2 = combo
+    p = f"lookback={p1} maxbars={p2}" if m == "breakout" else f"ema={p1} dev={p2}%"
+    print("=" * 66)
+    print("  OUT-OF-SAMPLE OPTIMIZATION  (train = first half, test = second)")
+    print("=" * 66)
+    print(f"  Bars             : {len(bars)} (train {len(train)} / test {len(test)})")
+    print(f"  Best TRAIN config: mode={m} TP={tp}% SL={sl}% {p}")
+    print("-" * 66)
+    print(f"  TRAIN  : {s_tr['trades']:>3} trades  "
+          f"win {s_tr['win_rate']:>5.1f}%  avg {s_tr['avg_trade_pct']:+.3f}%  "
+          f"PF {s_tr['profit_factor']:>4.2f}  ret {s_tr['total_return_pct']:+.2f}%")
+    print(f"  TEST   : {s_te['trades']:>3} trades  "
+          f"win {s_te['win_rate']:>5.1f}%  avg {s_te['avg_trade_pct']:+.3f}%  "
+          f"PF {s_te['profit_factor']:>4.2f}  ret {s_te['total_return_pct']:+.2f}%")
+    print("=" * 66)
+    verdict = ("HOLDS UP" if s_te["win_rate"] >= 50 and s_te["total_return_pct"] > 0
+               else "DOES NOT generalize (likely overfit to train)")
+    print(f"  Out-of-sample verdict: {verdict}")
+
+
 def main() -> None:
     import argparse
     ap = argparse.ArgumentParser(description="Price-action scalper backtest")
@@ -221,9 +318,16 @@ def main() -> None:
     ap.add_argument("--sl", type=float, help="stop-loss %% (e.g. 0.4)")
     ap.add_argument("--lookback", type=int, help="breakout lookback (bars)")
     ap.add_argument("--maxbars", type=int, help="time-stop (bars)")
+    ap.add_argument("--mode", choices=["breakout", "reversion"], help="strategy mode")
+    ap.add_argument("--ema", type=int, help="(reversion) EMA anchor length")
+    ap.add_argument("--dev", type=float, help="(reversion) %% stretch from EMA")
+    ap.add_argument("--optimize", action="store_true",
+                    help="grid-search on first half (train), report second half (test)")
     a = ap.parse_args()
 
-    global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS
+    global TP_PCT, SL_PCT, LOOKBACK, MAX_BARS, MODE, EMA_LEN, DEV_PCT
+    if a.mode is not None:
+        MODE = a.mode
     if a.tp is not None:
         TP_PCT = a.tp / 100.0
     if a.sl is not None:
@@ -232,9 +336,17 @@ def main() -> None:
         LOOKBACK = a.lookback
     if a.maxbars is not None:
         MAX_BARS = a.maxbars
+    if a.ema is not None:
+        EMA_LEN = a.ema
+    if a.dev is not None:
+        DEV_PCT = a.dev / 100.0
 
     path = a.csv
     bars = load_csv(path)
+
+    if a.optimize:
+        optimize(bars)
+        return
     trades, s = run(bars)
 
     print("=" * 64)
