@@ -53,12 +53,15 @@ isAtr = bracket == "ATR"
 atr   = ta.atr(atrLen)
 
 // Setup-quality gate - only trade recognized price-action setups
-useSetup = input.bool(true,  "Require valid setup (don't trade blindly)", group = "Setup gate")
-trendLen = input.int(50,    "Trend anchor EMA",  minval = 2,   group = "Setup gate")
-bodyFrac = input.float(0.5, "Breakout body / range",  minval = 0.1, maxval = 1.0, step = 0.05, group = "Setup gate")
-rejWick  = input.float(0.4, "Reversion rejection wick / range", minval = 0.1, maxval = 1.0, step = 0.05, group = "Setup gate")
-volFloor = input.float(0.5, "Min bar range (xATR)", minval = 0.0, step = 0.1, group = "Setup gate")
-emaTrend = ta.ema(close, trendLen)
+useSetup  = input.bool(true,  "Require valid setup (don't trade blindly)", group = "Setup gate")
+trendLen  = input.int(30,    "Trend anchor EMA",  minval = 2,   group = "Setup gate")
+trendSlp  = input.int(5,     "Trend slope lookback", minval = 1, group = "Setup gate")
+trendFlat = input.float(0.10, "Reversion: max counter-trend slope %", minval = 0.0, step = 0.01, group = "Setup gate") / 100.0
+bodyFrac  = input.float(0.5, "Breakout body / range",  minval = 0.1, maxval = 1.0, step = 0.05, group = "Setup gate")
+rejWick   = input.float(0.2, "Reversion rejection wick / range", minval = 0.1, maxval = 1.0, step = 0.05, group = "Setup gate")
+volFloor  = input.float(0.4, "Min bar range (xATR)", minval = 0.0, step = 0.1, group = "Setup gate")
+emaTrend  = ta.ema(close, trendLen)
+tSlope    = (emaTrend - emaTrend[trendSlp]) / emaTrend
 
 // Breakout params
 lookback   = input.int(20,   "Breakout lookback (bars)", minval = 2, group = "Breakout")
@@ -97,8 +100,10 @@ loWick    = math.min(open, close) - low
 volOk     = not useSetup or rng >= volFloor * atr
 candLong  = not useSetup or (isRev ? loWick >= rejWick * rng : body >= bodyFrac * rng)
 candShort = not useSetup or (isRev ? upWick >= rejWick * rng : body >= bodyFrac * rng)
-trendUpOk = not useSetup or close > emaTrend
-trendDnOk = not useSetup or close < emaTrend
+// mode-aware trend context: breakout trades with slope; reversion only avoids
+// fading a STRONG counter-trend (range / mild trend OK)
+trendUpOk = not useSetup or (isRev ? tSlope >= -trendFlat : tSlope > 0)
+trendDnOk = not useSetup or (isRev ? tSlope <=  trendFlat : tSlope < 0)
 
 longSig   = rawLong  and tradeLong  and volOk and trendUpOk and candLong
 shortSig  = rawShort and tradeShort and volOk and trendDnOk and candShort

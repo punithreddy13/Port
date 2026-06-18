@@ -45,7 +45,7 @@ SL_PCT = 0.0015        # stop-loss    = 0.15%  (reward:risk = 1.67 : 1)
 MAX_BARS = 30          # time-stop (bars) if neither TP nor SL is hit
 CLOSE_FRAC = 0.34      # candle must close within this fraction of its extreme
 EMA_LEN = 20           # (reversion) EMA anchor length
-DEV_PCT = 0.0015       # (reversion) min % stretch from EMA
+DEV_PCT = 0.0012       # (reversion) min % stretch from EMA
 BRACKET = "pct"        # "pct" (fixed %) or "atr" (volatility-scaled)
 ATR_LEN = 14           # ATR lookback for the atr bracket
 TP_ATR = 1.0           # take-profit = TP_ATR * ATR (atr bracket)
@@ -54,10 +54,12 @@ TRADE_LONG = True      # allow long entries
 TRADE_SHORT = True     # allow short entries (needs margin/futures on spot)
 # --- setup-quality gate: only trade recognized price-action setups ---
 USE_SETUP = True       # require a valid setup (False = take every raw signal)
-TREND_LEN = 50         # trend anchor EMA; trades must align with its direction
+TREND_LEN = 30         # trend anchor EMA; trades must align with its direction
+TREND_SLOPE = 5        # bars back used to measure trend-anchor slope
+TREND_FLAT = 0.0010    # (reversion) max counter-trend slope tolerated (fraction)
 BODY_FRAC = 0.5        # (breakout) candle body must be >= this * range
-REJ_WICK = 0.40        # (reversion) rejection wick must be >= this * range
-VOL_FLOOR = 0.5        # bar range must be >= this * ATR (skip dead/chop bars) to fade
+REJ_WICK = 0.20        # (reversion) rejection wick must be >= this * range
+VOL_FLOOR = 0.4        # bar range must be >= this * ATR (skip dead/chop bars) to fade
 FEE_PCT = 0.0004       # 0.04% taker fee per side (Binance spot taker)
 SLIPPAGE_PCT = 0.0001  # 0.01% slippage per side
 START_EQUITY = 10_000.0
@@ -177,13 +179,22 @@ def signal(bars: list[Bar], i: int, ema_fast: list[float] | None = None,
     # 1) volatility floor: ignore dead / choppy bars
     if atr is not None and atr[i] > 0 and rng < VOL_FLOOR * atr[i]:
         return None
-    # 2) trend alignment: only trade with the trend anchor
-    if ema_trend is not None and i >= TREND_LEN:
-        up = b.c > ema_trend[i]
-        if side == "long" and not up:
-            return None
-        if side == "short" and up:
-            return None
+    # 2) trend context (mode-aware), measured by the trend-anchor SLOPE:
+    #    - breakout (momentum): only trade WITH the slope
+    #    - reversion (fade): allow range/mild trend, but don't fade a STRONG
+    #      counter-trend (catching a knife)
+    if ema_trend is not None and i >= TREND_LEN + TREND_SLOPE:
+        slope = (ema_trend[i] - ema_trend[i - TREND_SLOPE]) / ema_trend[i]
+        if MODE == "breakout":
+            if side == "long" and slope <= 0:
+                return None
+            if side == "short" and slope >= 0:
+                return None
+        else:  # reversion
+            if side == "long" and slope < -TREND_FLAT:
+                return None
+            if side == "short" and slope > TREND_FLAT:
+                return None
     # 3) candle confirmation
     body = abs(b.c - b.o)
     up_wick = b.h - max(b.o, b.c)
@@ -205,7 +216,8 @@ def run(bars: list[Bar]) -> tuple[list[Trade], dict]:
     ema_fast = ema_series(bars, EMA_LEN)
     ema_trend = ema_series(bars, TREND_LEN) if USE_SETUP else None
     atr = atr_series(bars, ATR_LEN) if (BRACKET == "atr" or USE_SETUP) else None
-    warmup = max(LOOKBACK, EMA_LEN, ATR_LEN, TREND_LEN if USE_SETUP else 0)
+    warmup = max(LOOKBACK, EMA_LEN, ATR_LEN,
+                 (TREND_LEN + TREND_SLOPE) if USE_SETUP else 0)
     i = warmup
     while i < n - 1:
         sig = signal(bars, i, ema_fast, ema_trend, atr)

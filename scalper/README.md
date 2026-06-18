@@ -145,14 +145,17 @@ By default the bot does **not** take every raw breakout/stretch. A signal is onl
 acted on when a proper price-action **setup** is recognised (toggle off with
 `--no-setup` / Pine *Require valid setup*):
 
-1. **Trend alignment** — trade only with the `trend` anchor EMA (default 50):
-   longs require price above it, shorts below. This turns reversion into a
-   *buy-the-dip-in-an-uptrend / sell-the-rally-in-a-downtrend* setup rather than
-   blindly catching knives.
+1. **Trend context (mode-aware)** — measured by the slope of the `trend` anchor
+   EMA (default 30, slope over 5 bars):
+   - *Breakout* (momentum) trades only **with** the slope (long if rising).
+   - *Reversion* (fade) allows range / mild-trend conditions but won't fade a
+     **strong** counter-trend — i.e. it won't catch a knife (tolerance
+     `trendFlat`, default 0.10%). Trend-following and mean-reversion are opposite
+     by nature, so the gate adapts per mode instead of forcing one rule on both.
 2. **Candle confirmation** — breakouts need a decisive body (`body ≥ 0.5×range`);
-   reversions need a genuine **rejection wick** (`wick ≥ 0.4×range`) in the trade
+   reversions need a genuine **rejection wick** (`wick ≥ 0.2×range`) in the trade
    direction.
-3. **Volatility floor** — skip dead/chop bars where `range < 0.5×ATR`.
+3. **Volatility floor** — skip dead/chop bars where `range < 0.4×ATR`.
 
 ```bash
 python3 scalper/scalper_backtest.py scalper/data/btcusdt_5m_sample.csv      # gate ON
