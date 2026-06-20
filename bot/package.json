@@ -1,0 +1,17 @@
+{
+  "name": "honest-paper-trading-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An honest crypto paper-trading bot: real live prices, fake money, real fees/funding/slippage, and a truthful close on every trade.",
+  "scripts": {
+    "record": "node src/record.mjs",
+    "backtest": "node src/backtester.mjs",
+    "start": "node src/engine.mjs",
+    "serve": "node src/server.mjs",
+    "test": "node src/selftest.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
