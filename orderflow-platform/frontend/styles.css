@@ -1,0 +1,138 @@
+/* OrderFlow Terminal — institutional dark theme */
+:root {
+  --bg: #0b0e14;
+  --bg-panel: #10141d;
+  --bg-card: #161b27;
+  --border: #1f2634;
+  --text: #c9d2e0;
+  --text-dim: #6b7689;
+  --accent: #35c3f0;
+  --buy: #2ecc8f;
+  --sell: #ff5470;
+  --warn: #f0b429;
+  font-size: 13px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* ---------- top bar ---------- */
+#topbar {
+  display: flex; align-items: center; gap: 18px;
+  padding: 8px 14px; background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; letter-spacing: 2px; color: var(--text); }
+.brand span { color: var(--accent); }
+.quote { display: flex; gap: 10px; align-items: baseline; }
+#symbol { color: var(--text-dim); }
+.price { font-size: 1.35rem; font-weight: 700; color: var(--text); }
+.price.up { color: var(--buy); }
+.price.down { color: var(--sell); }
+.assess { display: flex; gap: 8px; margin-left: auto; }
+.chip {
+  padding: 3px 10px; border-radius: 3px; background: var(--bg-card);
+  border: 1px solid var(--border); color: var(--text-dim); font-size: 0.85rem;
+  white-space: nowrap;
+}
+.chip.buyers { color: var(--buy); border-color: var(--buy); }
+.chip.sellers { color: var(--sell); border-color: var(--sell); }
+.chip.hot { color: var(--warn); border-color: var(--warn); }
+.conn { display: flex; gap: 6px; align-items: center; color: var(--text-dim); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sell); display: inline-block; }
+.dot.ok { background: var(--buy); }
+
+/* ---------- layout ---------- */
+#layout { flex: 1; display: grid; grid-template-columns: 1fr 240px 320px; min-height: 0; }
+section { border-right: 1px solid var(--border); min-height: 0; overflow: hidden; }
+
+#chart-area { display: flex; flex-direction: column; position: relative; background: var(--bg); }
+#heatmap { flex: 1; width: 100%; min-height: 0; display: block; }
+#delta-panel { height: 120px; width: 100%; border-top: 1px solid var(--border); display: block; }
+#chart-legend {
+  position: absolute; top: 8px; left: 12px; display: flex; gap: 12px;
+  background: rgba(16,20,29,0.85); padding: 4px 10px; border-radius: 4px;
+  border: 1px solid var(--border); color: var(--text-dim); z-index: 5;
+}
+#chart-legend label { cursor: pointer; user-select: none; }
+#chart-legend input { accent-color: var(--accent); }
+
+/* ---------- DOM & tape ---------- */
+#dom-area { display: flex; flex-direction: column; background: var(--bg-panel); }
+.panel-title {
+  padding: 5px 10px; color: var(--text-dim); font-size: 0.78rem; letter-spacing: 1.5px;
+  border-bottom: 1px solid var(--border); background: var(--bg-card);
+}
+#dom { flex: 1.3; overflow-y: auto; }
+#tape { flex: 1; overflow-y: auto; }
+.dom-row { display: grid; grid-template-columns: 1fr 70px 1fr; font-size: 0.85rem; height: 19px; line-height: 19px; }
+.dom-row .p { text-align: center; color: var(--text-dim); }
+.dom-row.best .p { color: var(--text); font-weight: 700; }
+.dom-bid, .dom-ask { position: relative; }
+.dom-bid .bar { position: absolute; right: 0; top: 2px; bottom: 2px; background: rgba(46,204,143,0.25); }
+.dom-ask .bar { position: absolute; left: 0; top: 2px; bottom: 2px; background: rgba(255,84,112,0.25); }
+.dom-bid .qty { position: absolute; right: 6px; color: var(--buy); }
+.dom-ask .qty { position: absolute; left: 6px; color: var(--sell); }
+.tape-row { display: flex; justify-content: space-between; padding: 1px 10px; font-size: 0.82rem; }
+.tape-row.buy { color: var(--buy); }
+.tape-row.sell { color: var(--sell); }
+.tape-row .big { font-weight: 700; text-shadow: 0 0 6px currentColor; }
+
+/* ---------- AI panel ---------- */
+#ai-area { display: flex; flex-direction: column; background: var(--bg-panel); border-right: none; }
+.card {
+  margin: 8px; padding: 10px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 0.85rem; line-height: 1.5;
+}
+.card.muted { color: var(--text-dim); }
+.card .dir-buy { color: var(--buy); font-weight: 700; }
+.card .dir-sell { color: var(--sell); font-weight: 700; }
+#narration { flex: 1.4; overflow-y: auto; padding: 4px 0; }
+#signal-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.nar-row { padding: 4px 10px; font-size: 0.82rem; line-height: 1.45; border-bottom: 1px solid rgba(31,38,52,0.5); }
+.nar-row .t { color: var(--text-dim); margin-right: 6px; }
+.nar-row.alert { color: var(--warn); }
+.nar-row.notice { color: var(--text); }
+.nar-row.info { color: var(--text-dim); }
+.sig-row { display: flex; gap: 8px; padding: 3px 10px; font-size: 0.8rem; align-items: center; }
+.sig-badge {
+  min-width: 34px; text-align: center; padding: 1px 5px; border-radius: 3px;
+  font-size: 0.72rem; font-weight: 700; border: 1px solid;
+}
+.sig-badge.buy { color: var(--buy); border-color: var(--buy); }
+.sig-badge.sell { color: var(--sell); border-color: var(--sell); }
+.sig-badge.none { color: var(--text-dim); border-color: var(--text-dim); }
+.sig-conf { color: var(--text-dim); margin-left: auto; }
+
+/* ---------- footer ---------- */
+#controls {
+  display: flex; gap: 22px; align-items: center; padding: 8px 14px;
+  background: var(--bg-panel); border-top: 1px solid var(--border); flex-wrap: wrap;
+}
+.group { display: flex; gap: 8px; align-items: center; }
+button {
+  background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+  padding: 6px 14px; border-radius: 3px; cursor: pointer; font-family: inherit; font-size: 0.85rem;
+}
+button:hover { border-color: var(--accent); }
+button.buy { background: rgba(46,204,143,0.15); color: var(--buy); border-color: var(--buy); }
+button.sell { background: rgba(255,84,112,0.15); color: var(--sell); border-color: var(--sell); }
+input, select {
+  background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+  padding: 6px 8px; border-radius: 3px; font-family: inherit; font-size: 0.85rem;
+}
+#trade-size { width: 64px; }
+#ask-input { width: 280px; }
+#replay-scrub { width: 160px; }
+.readout { color: var(--text-dim); font-size: 0.85rem; }
+.readout.long { color: var(--buy); }
+.readout.short { color: var(--sell); }
+
+@media (max-width: 1200px) {
+  #layout { grid-template-columns: 1fr 200px 260px; }
+}
