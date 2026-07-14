@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrderFlow Terminal</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230b0e14'/><rect x='2' y='8' width='3' height='6' fill='%232ecc8f'/><rect x='6' y='4' width='3' height='10' fill='%2335c3f0'/><rect x='10' y='6' width='3' height='8' fill='%23ff5470'/></svg>">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">ORDER<span>FLOW</span> TERMINAL</div>
+  <div class="quote">
+    <span id="symbol">—</span>
+    <span id="last-price" class="price">—</span>
+  </div>
+  <div class="assess">
+    <div class="chip" id="chip-control" title="Who is in control (AI fusion)">CONTROL —</div>
+    <div class="chip" id="chip-inst" title="Institutional bias">INST —</div>
+    <div class="chip" id="chip-cont" title="Probability of continuation">CONT —</div>
+    <div class="chip" id="chip-rev" title="Probability of reversal">REV —</div>
+    <div class="chip" id="chip-conf" title="AI confidence">CONF —</div>
+  </div>
+  <div class="conn"><span id="conn-dot" class="dot"></span><span id="conn-text">connecting</span></div>
+</header>
+
+<main id="layout">
+  <section id="chart-area">
+    <canvas id="heatmap"></canvas>
+    <div id="chart-legend">
+      <label><input type="checkbox" id="toggle-candles" checked> candles</label>
+      <label><input type="checkbox" id="toggle-bubbles" checked> bubbles</label>
+      <label><input type="checkbox" id="toggle-profile" checked> profile</label>
+      <label><input type="checkbox" id="toggle-zones" checked> zones</label>
+      <label><input type="checkbox" id="toggle-signals" checked> signals</label>
+    </div>
+    <canvas id="delta-panel"></canvas>
+  </section>
+
+  <section id="dom-area">
+    <div class="panel-title">DOM</div>
+    <div id="dom"></div>
+    <div class="panel-title">TAPE</div>
+    <div id="tape"></div>
+  </section>
+
+  <section id="ai-area">
+    <div class="panel-title">AI ANALYST</div>
+    <div id="plan-card" class="card muted">no active trade plan</div>
+    <div class="panel-title">NARRATION</div>
+    <div id="narration"></div>
+    <div class="panel-title">SIGNALS</div>
+    <div id="signal-list"></div>
+  </section>
+</main>
+
+<footer id="controls">
+  <div class="group" id="trade-group">
+    <button id="btn-buy" class="buy">BUY</button>
+    <input id="trade-size" type="number" value="1" min="0.01" step="1" title="size">
+    <button id="btn-sell" class="sell">SELL</button>
+    <button id="btn-flat" title="flatten position">FLAT</button>
+    <span id="pos-readout" class="readout">flat</span>
+    <span id="pnl-readout" class="readout">P&amp;L 0.00</span>
+  </div>
+  <div class="group" id="replay-group">
+    <button id="btn-replay-load" title="load a simulated historical session">LOAD REPLAY</button>
+    <button id="btn-replay-play">▶</button>
+    <button id="btn-replay-pause">⏸</button>
+    <select id="replay-speed" title="replay speed">
+      <option value="0.25">0.25×</option>
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="4">4×</option>
+      <option value="16">16×</option>
+      <option value="64">64×</option>
+    </select>
+    <input id="replay-scrub" type="range" min="0" max="1000" value="0" title="jump to time">
+    <span id="replay-status" class="readout">live</span>
+  </div>
+  <div class="group">
+    <input id="ask-input" type="text" placeholder="ask the analyst… e.g. who is in control?">
+    <button id="btn-ask">ASK</button>
+  </div>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
